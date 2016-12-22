@@ -20,27 +20,40 @@ data PrvKey = PrvKey{  lambda :: Integer -- ^ lambda(n) = lcm(p-1, q-1)
                      , x :: Integer
                     } deriving (Show)
 
+-- TODO: Deal with the fact that generated primes aren't necessarily the correct bit size
 
+genKey :: Int -> IO(PubKey, PrvKey)
+genKey nBits = loop
+    where
+        loop = do
+            -- Generate random primes
+            (p, q) <- generatePQ
 
-genKey :: Int -> IO (PubKey, PrvKey)
-genKey nBits = do
-    -- choose random primes
-    pool <- createEntropyPool
-    let rng = cprgCreate pool :: SystemRNG
-    let (p, rng1) = generatePrime rng (nBits `div` 2)
-    let (q, _) = generatePrime rng1 (nBits `div` 2)
-    -- public key parameters
-    let modulo = p*q
-    let g = modulo+1
-    let square = modulo*modulo
-    -- private key parameters
-    let phi_n = lcm (p-1) (q-1)
-    let maybeU = inverse ((expSafe g phi_n square - 1) `div` modulo) modulo
-    if isNothing maybeU then
-       error "genKey failed."
-    else
-        return (PubKey{bits=nBits, nModulo=modulo, generator=g, nSquare=square}
-           ,PrvKey{lambda=phi_n, x=fromJust maybeU})
+            let modulo = p * q
+
+            -- Public key parameters
+            let g = modulo + 1
+            let square = modulo * modulo
+            -- Private key parameters
+            let phi_n = lcm (p - 1) (q - 1)
+            let maybeU = inverse ((expSafe g phi_n square - 1) `div` modulo) modulo
+            if isNothing maybeU then
+                error "genKey failed."
+            else
+                return (PubKey{bits=nBits, nModulo=modulo, generator=g, nSquare=square},
+                        PrvKey{lambda=phi_n, x=fromJust maybeU})
+        generatePQ = do
+            -- Generate the first prime
+            p <- generatePrime (nBits `div` 2)
+
+            q <- generateQ p
+            return (p, q)
+        generateQ p = do
+            -- Generate the second prime
+            q <- generatePrime (nBits `div` 2)
+            -- Repeat until they're different
+            if p == q then generateQ p else return q
+
 
 -- | deterministic version of encryption
 _encrypt :: PubKey -> PlainText -> Integer -> CipherText
@@ -51,20 +64,17 @@ _encrypt pubKey plaintext r =
           g_m = expSafe (generator pubKey) plaintext n_2
           r_n = expSafe r (nModulo pubKey) n_2
 
-generateR :: SystemRNG -> PubKey -> Integer -> Integer
-generateR rng pubKey guess =
-    if guess >= nModulo pubKey || (gcd (nModulo pubKey) guess > 1) then
-        generateR nextRng pubKey nextGuess
+generateR :: PubKey -> Integer -> IO Integer
+generateR pubKey guess = do
+    if guess >= nModulo pubKey || (gcd (nModulo pubKey) guess > 1) then do
+        nextGuess <- generateBetween 1 (nModulo pubKey -1)
+        generateR pubKey nextGuess
     else
-        guess
-
-    where (nextGuess, nextRng) = generateBetween rng 1 (nModulo pubKey -1)
+        return guess
 
 encrypt :: PubKey -> PlainText -> IO CipherText
 encrypt pubKey plaintext = do
-    pool <- createEntropyPool
-    let rng = cprgCreate pool :: SystemRNG
-    let r = generateR rng pubKey (nModulo pubKey)
+    r <- generateR pubKey (nModulo pubKey)
     return $ _encrypt pubKey plaintext r
 
 decrypt :: PrvKey -> PubKey -> CipherText -> PlainText
