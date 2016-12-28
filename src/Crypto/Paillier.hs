@@ -1,10 +1,9 @@
 module Crypto.Paillier where
 
-import Data.Maybe
-import Crypto.Random
-import Crypto.Number.Prime
+import Data.Maybe (isNothing, fromJust)
+import Crypto.Number.Prime (generatePrime)
 import Crypto.Number.Generate (generateBetween)
-import Crypto.Number.ModArithmetic
+import Crypto.Number.ModArithmetic (expSafe, inverse)
 
 type PlainText = Integer
 
